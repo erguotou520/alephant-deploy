@@ -1,0 +1,391 @@
+# =============================================================================
+# Alephant Production Stack - Docker Compose
+# =============================================================================
+# 从 Kubernetes (tradly-aliyun.yaml / alephant-prod) 迁移至 Docker Compose
+#
+# 使用方式:
+#   1. 复制 infra.env.example 为 infra.env，填入基础设施密码
+#   2. 为每个应用填写对应的 *.env 文件中的 <请替换> 值
+#      (可从 K8s Secret 中导出: alephant-*-infisical-secrets)
+#   3. docker compose up -d
+#
+# 环境变量体系:
+#   infra.env        → PostgreSQL / ClickHouse / Valkey / Qdrant 凭证
+#   saas-service.env → SaaS 后端 (76 vars, 源自 Infisical)
+#   policy-service.env → 策略后端 (24 vars)
+#   ai-gateway.env    → AI 网关 (27 vars)
+#   ledge-service.env → Ledge 服务 (56 vars)
+#   logs-collector.env → 日志收集 (12 vars)
+# =============================================================================
+
+networks:
+  alephant-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  clickhouse-data:
+    driver: local
+  valkey-data:
+    driver: local
+  qdrant-storage:
+    driver: local
+
+# =============================================================================
+# Services
+# =============================================================================
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL (数据库)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17
+    container_name: alephant-postgres
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    env_file:
+      - infra.env
+    environment:
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-alephant}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # ClickHouse (OLAP 数据库)
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: alephant-clickhouse
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:8123:8123"   # HTTP 接口
+      - "127.0.0.1:9000:9000"   # 原生 TCP
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./config/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      - ./config/clickhouse/users.d:/etc/clickhouse-server/users.d:ro
+    env_file:
+      - infra.env
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # Valkey / Redis (缓存)
+  # ---------------------------------------------------------------------------
+  valkey:
+    image: valkey/valkey:9.0.2
+    container_name: alephant-valkey
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkey-data:/data
+    env_file:
+      - infra.env
+    command: ["valkey-server", "--loglevel", "notice", "--requirepass", "${VALKEY_PASSWORD}"]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "valkey-cli -a \"${VALKEY_PASSWORD}\" --no-auth-warning ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 4G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Qdrant (向量数据库) - 单节点模式
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+    container_name: alephant-qdrant
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:6333:6333"   # HTTP
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      - qdrant-storage:/qdrant/storage
+      - ./config/qdrant/production.yaml:/qdrant/config/production.yaml:ro
+    env_file:
+      - infra.env
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # SaaS 前端 (Nginx SPA)
+  # 注意: 如需统一 API 路由，建议在 nginx.conf 中添加 reverse proxy 配置
+  # ---------------------------------------------------------------------------
+  saas-app:
+    image: ${APP_IMAGE:-registry.digitalocean.com/wechart/alephantai-app:20260613081608}
+    container_name: alephant-app
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "80:80"   # 建议在上游部署 SSL 反向代理
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - saas-service
+      - policy-service
+      - ai-gateway
+      - ledge-service
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # SaaS 后端
+  # ---------------------------------------------------------------------------
+  saas-service:
+    image: ${SAAS_SERVICE_IMAGE:-registry.digitalocean.com/wechart/alephantai-saas-service:20260629121515}
+    container_name: alephant-saas-service
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:8081:8080"
+    env_file:
+      - saas-service.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+        reservations:
+          cpus: "0.2"
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # 策略后端
+  # ---------------------------------------------------------------------------
+  policy-service:
+    image: ${POLICY_SERVICE_IMAGE:-registry.digitalocean.com/wechart/alephantai-policy-service:20260613220845}
+    container_name: alephant-policy-service
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:8090:8090"
+    env_file:
+      - policy-service.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+        reservations:
+          cpus: "0.2"
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # AI Gateway
+  # ---------------------------------------------------------------------------
+  ai-gateway:
+    image: ${AI_GATEWAY_IMAGE:-registry.digitalocean.com/wechart/alephantai-ai-gateway:20260629120913}
+    container_name: alephant-ai-gateway
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - ai-gateway.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+        reservations:
+          cpus: "0.2"
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Ledge Service
+  # ---------------------------------------------------------------------------
+  ledge-service:
+    image: ${LEDGE_SERVICE_IMAGE:-registry.digitalocean.com/wechart/alephantai-ledge-service:20260629153650}
+    container_name: alephant-ledge-service
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:8091:8080"
+    env_file:
+      - ledge-service.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # Logs Collector
+  # ---------------------------------------------------------------------------
+  logs-collector:
+    image: ${LOGS_COLLECTOR_IMAGE:-registry.digitalocean.com/wechart/alephantai-logs-collector:20260618231935}
+    container_name: alephant-logs-collector
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:8585:8585"
+    env_file:
+      - logs-collector.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+        reservations:
+          cpus: "0.1"
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Postgres Exporter (监控)
+  # ---------------------------------------------------------------------------
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: alephant-postgres-exporter
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-alephant}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alephant}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # Valkey Exporter (监控)
+  # ---------------------------------------------------------------------------
+  valkey-exporter:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: alephant-valkey-exporter
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "127.0.0.1:9121:9121"
+    environment:
+      REDIS_ADDR: "redis://valkey:6379"
+      REDIS_PASSWORD: ${VALKEY_PASSWORD}
+    depends_on:
+      valkey:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 64M

@@ -1,0 +1,7 @@
+# Qdrant 单节点配置 (Docker Compose)
+# 原 K8s 为 Raft 集群模式，Compose 中使用 standalone 模式
+cluster:
+  enabled: false
+service:
+  api_key: ${QDRANT_API_KEY:?必须设置 QDRANT_API_KEY}
+  enable_tls: false
