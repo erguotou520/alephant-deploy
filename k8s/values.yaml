@@ -12,11 +12,16 @@ app:
   image:
     repository: alephant-app
     tag: "20260712195934"
-  # tolerations:                           # 按需取消注释
+  # tolerations:
   #   - key: dedicated
   #     operator: Equal
   #     value: prod
   #     effect: NoSchedule
+  env:
+    API_BASE_URL:
+      value: "http://localhost"
+    COLLECTOR_BASE_URL:
+      value: "http://localhost:82"
   service:
     enabled: true
     port: 80

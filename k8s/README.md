@@ -71,7 +71,7 @@
 | **Valkey / Redis** | 官方 Helm Chart (valkey/valkey) | |
 | **Qdrant** | 官方 Helm Chart (qdrant/qdrant) | 单节点需改 `replicaCount: 1` |
 | **TiKV + PD** | StatefulSet 直 deploy | 参见 `middlewares/tikv-pd.yaml` |
-| **MinIO** | 直接 K8s 资源 (pgsty/minio) | 参见 `middlewares/minio-deploy.yaml` |
+| **MinIO** | 直接 K8s 资源 (pgsty/minio) | 参见 `middlewares/minio.values.yaml` |
 
 ### 网络连通性
 
@@ -246,19 +246,17 @@ helm upgrade --install alephant-prod-qdrant qdrant/qdrant \
 
 ### MinIO (S3 兼容对象存储)
 
-与 Docker Compose 一致，使用 `pgsty/minio` 镜像直接部署（非 Bitnami Chart）。
+与 Docker Compose 一致，使用 `pgsty/minio` 镜像直接部署。
 
 ```bash
-kubectl apply -f middlewares/minio-deploy.yaml
+kubectl apply -f middlewares/minio.values.yaml
 ```
 
 服务地址:
 - S3 API: `alephant-minio.alephant-prod.svc.cluster.local:9000`
 - Console: `alephant-minio.alephant-prod.svc.cluster.local:9001`
 
-配置参考: [`middlewares/minio-deploy.yaml`](middlewares/minio-deploy.yaml)
-
-> 之前使用 Bitnami Chart 遇到镜像拉取失败的问题，改用与 docker-compose 一致的 `pgsty/minio` 镜像即可。如有高可用需求，可改用 MinIO Operator 部署分布式模式。
+配置参考: [`middlewares/minio.values.yaml`](middlewares/minio.values.yaml)
 
 ---
 
