@@ -1,0 +1,222 @@
+global:
+  namespace: alephant-prod
+  imageRegistry: registry.openmodels.link/alephant
+  imagePullPolicy: IfNotPresent
+
+# ---------------------------------------------------------------------------
+# SaaS 前端 (SPA + Nginx 反向代理)
+# ---------------------------------------------------------------------------
+app:
+  replicas: 1
+  name: alephantai-app
+  image:
+    repository: alephantai-app
+    tag: 20260712195934
+  spa: true
+  service:
+    enabled: true
+    port: 80
+
+# ---------------------------------------------------------------------------
+# SaaS 后端
+# ---------------------------------------------------------------------------
+saasService:
+  replicas: 1
+  name: alephantai-saas-service
+  image:
+    repository: alephantai-saas-service
+    tag: 20260712195945
+  envFrom:
+    - secretRef:
+        name: alephant-saas-service-secrets
+  # --------------------------------------------------------------------------
+  # 私有化部署 — License 激活
+  # 将颁发的 license.jwt 创建为 ConfigMap 后挂载到容器中。
+  #
+  #   kubectl create configmap alephant-license \
+  #     --from-file=license.jwt=./license/license.jwt \
+  #     -n alephant-prod
+  # --------------------------------------------------------------------------
+  volumes:
+    - name: license
+      configMap:
+        name: alephant-license
+        defaultMode: 420
+  volumeMounts:
+    - name: license
+      mountPath: /etc/alephant/license
+      readOnly: true
+  env:
+    ALEPHANT_LICENSE_FILE:
+      value: /etc/alephant/license/license.jwt
+    PRIVATE_WORKSPACE_OWNER_EMAILS:
+      value: ""             # ← 替换为实际的工作空间拥有者邮箱，多个用逗号分隔
+  service:
+    enabled: true
+    port: 8080
+
+# ---------------------------------------------------------------------------
+# 策略后端（HTTP + gRPC 双端口）
+# ---------------------------------------------------------------------------
+policyService:
+  replicas: 1
+  name: alephantai-policy-service
+  image:
+    repository: alephantai-policy-service
+    tag: 20260712195949
+  envFrom:
+    - secretRef:
+        name: alephant-policy-service-secrets
+  service:
+    enabled: true
+    ports:
+      - name: http
+        targetPort: 8090
+        port: 8090
+      - name: grpc
+        port: 9090
+        targetPort: 9090
+
+# ---------------------------------------------------------------------------
+# AI 网关
+# ---------------------------------------------------------------------------
+aiGateway:
+  replicas: 1
+  name: alephantai-ai-gateway
+  image:
+    repository: alephantai-ai-gateway
+    tag: 20260712194908
+  envFrom:
+    - secretRef:
+        name: alephant-ai-gateway-secrets
+  service:
+    enabled: true
+    port: 8080
+
+# ---------------------------------------------------------------------------
+# 日志收集器
+# ---------------------------------------------------------------------------
+logsCollector:
+  replicas: 1
+  name: alephantai-logs-collector
+  image:
+    repository: alephantai-logs-collector
+    tag: 20260712195944
+  envFrom:
+    - secretRef:
+        name: alephant-logs-collector-secrets
+  service:
+    enabled: true
+    port: 8585
+
+# ---------------------------------------------------------------------------
+# Ingress — 多域名路由
+# ---------------------------------------------------------------------------
+# className 和 cert-manager 注解为参考模板，根据你的集群替换。
+# 常见选项: nginx / haproxy / alb / traefik / 或不使用 Ingress 直接 Service NodePort。
+ingress:
+  enabled: false       # 按需开启
+  className: ""        # 填入你的 IngressController，如 nginx / haproxy / traefik
+  hosts:
+    # --- alephant.io (前端 + SaaS API + 策略) ---
+    - metadata:
+        name: alephant-prod
+        annotations:
+          cert-manager.io/cluster-issuer: wechart
+      spec:
+        tls:
+          - hosts:
+              - alephant.io
+            secretName: alephant.io
+        rules:
+          - host: alephant.io
+            http:
+              paths:
+                - path: /api/v1
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: alephantai-saas-service
+                      port:
+                        number: 8080
+                - path: /v1/policy
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: alephantai-policy-service
+                      port:
+                        number: 8080
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: alephantai-app
+                      port:
+                        number: 80
+
+    # --- ai.alephant.io (AI 网关) ---
+    - metadata:
+        name: alephant-ai-gateway
+        annotations:
+          cert-manager.io/cluster-issuer: wechart
+      spec:
+        tls:
+          - hosts:
+              - ai.alephant.io
+            secretName: ai.alephant.io
+        rules:
+          - host: ai.alephant.io
+            http:
+              paths:
+                - path: /v1
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: alephantai-ai-gateway
+                      port:
+                        number: 8080
+
+    # --- analytics.alephant.io (日志分析) ---
+    - metadata:
+        name: alephant-analytics
+        annotations:
+          cert-manager.io/cluster-issuer: wechart
+      spec:
+        tls:
+          - hosts:
+              - analytics.alephant.io
+            secretName: analytics.alephant.io
+        rules:
+          - host: analytics.alephant.io
+            http:
+              paths:
+                - path: /v1
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: alephantai-logs-collector
+                      port:
+                        number: 8585
+
+    # --- api.alephant.io (带 path-rewrite 的 AI 网关) ---
+    - metadata:
+        name: api-alephant
+        annotations:
+          cert-manager.io/cluster-issuer: wechart
+          haproxy.org/path-rewrite: /v1/(.*) /key_market/\1
+      spec:
+        tls:
+          - hosts:
+              - api.alephant.io
+            secretName: api.alephant.io
+        rules:
+          - host: api.alephant.io
+            http:
+              paths:
+                - path: /v1
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: alephantai-ai-gateway
+                      port:
+                        number: 8080
