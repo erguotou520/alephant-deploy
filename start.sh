@@ -308,7 +308,7 @@ start_services() {
     "registry.digitalocean.com/wechart/alephantai-ai-gateway:20260629120913" \
     "registry.digitalocean.com/wechart/alephantai-logs-collector:20260618231935" \
     "postgres:17" \
-    "clickhouse/clickhouse-server:24.3" \
+    "clickhouse/clickhouse-server:24.8" \
     "valkey/valkey:9.0.2" \
     "qdrant/qdrant:v1.17.1" \
     "pingcap/pd:v7.5.0" \
