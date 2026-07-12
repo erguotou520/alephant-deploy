@@ -51,8 +51,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     env_file:
@@ -88,7 +86,7 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ./config/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
-      - ./config/clickhouse/users.d:/etc/clickhouse-server/users.d
+      # 不挂载 users.d — entrypoint 自动从 CLICKHOUSE_PASSWORD 生成 default-user.xml
     env_file:
       - infra.env
     environment:
@@ -120,8 +118,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:6379:6379"
     volumes:
       - valkey-data:/data
     env_file:
@@ -150,9 +146,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:6333:6333"   # HTTP
-      - "127.0.0.1:6334:6334"   # gRPC
     volumes:
       - qdrant-storage:/qdrant/storage
       - ./config/qdrant/production.yaml:/qdrant/config/production.yaml:ro
@@ -182,8 +175,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:2379:2379"
     volumes:
       - pd-data:/data/pd
     command:
@@ -216,8 +207,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:20160:20160"
     volumes:
       - tikv-data:/data/tikv
     command:
@@ -250,9 +239,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:9000:9000"   # S3 API
-      - "127.0.0.1:9001:9001"   # Console UI
     volumes:
       - minio-data:/data
     env_file:
@@ -301,8 +287,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:8081:8080"
     env_file:
       - saas-service.env
     volumes:
@@ -320,8 +304,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:8090:8090"
     env_file:
       - policy-service.env
 
@@ -338,8 +320,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:8080:8080"
     env_file:
       - ai-gateway.env
 
@@ -352,8 +332,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "127.0.0.1:8585:8585"
     env_file:
       - logs-collector.env
 
