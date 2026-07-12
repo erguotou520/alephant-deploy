@@ -88,7 +88,7 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ./config/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
-      - ./config/clickhouse/users.d:/etc/clickhouse-server/users.d:ro
+      - ./config/clickhouse/users.d:/etc/clickhouse-server/users.d
     env_file:
       - infra.env
     environment:
@@ -276,9 +276,8 @@ services:
           memory: 512M
 
   # ---------------------------------------------------------------------------
-  # SaaS 前端 + API 反向代理 (Nginx)
-  # nginx.conf 包含多域名 server 块和子路径 reverse proxy，
-  # 将 /api/v1 → saas-service, /v1 → ai-gateway, /v1/log → logs-collector 等
+  # SaaS 前端 + API 反向代理 (Nginx — 使用容器内置动态模板)
+  # 不覆盖 nginx.conf，不直接暴露端口，由 gateway 统一代理
   # ---------------------------------------------------------------------------
   saas-app:
     depends_on:
@@ -291,10 +290,6 @@ services:
     restart: unless-stopped
     networks:
       - alephant-net
-    ports:
-      - "80:80"   # 建议在上游部署 SSL 反向代理
-    volumes:
-      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     
 
   # ---------------------------------------------------------------------------
@@ -361,3 +356,24 @@ services:
       - "127.0.0.1:8585:8585"
     env_file:
       - logs-collector.env
+
+  # ---------------------------------------------------------------------------
+  # Gateway (统一接入网关 — Nginx)
+  # 暴露 80/81/82，反向代理到内部各服务
+  # ---------------------------------------------------------------------------
+  gateway:
+    depends_on:
+      - saas-app
+      - ai-gateway
+      - logs-collector
+    image: nginx:alpine
+    container_name: alephant-gateway
+    restart: unless-stopped
+    networks:
+      - alephant-net
+    ports:
+      - "80:80"   # Web app (SPA + API) → saas-app
+      - "81:81"   # AI Gateway → ai-gateway
+      - "82:82"   # Logs Collector → logs-collector
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
