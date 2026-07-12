@@ -300,6 +300,68 @@ write_license_file() {
   fi
 }
 
+# ─── 数据库初始化 ──────────────────────────────────────────────────────────
+init_databases() {
+  info "初始化数据库..."
+
+  # ── 等待 PostgreSQL 就绪 ──
+  info "  等待 PostgreSQL 就绪..."
+  local RETRIES=30
+  local WAIT=2
+  local i=0
+  while [ $i -lt $RETRIES ]; do
+    if docker compose exec -T postgres pg_isready -U alephant &>/dev/null; then
+      ok "  PostgreSQL 就绪"
+      break
+    fi
+    i=$((i + 1))
+    sleep $WAIT
+  done
+  if [ $i -ge $RETRIES ]; then
+    err "PostgreSQL 未能就绪，跳过初始化"
+    return 1
+  fi
+
+  # ── 检查是否已有表 ──
+  local TABLE_COUNT
+  TABLE_COUNT=$(docker compose exec -T postgres psql -U alephant -d alephant -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ')
+  if [ -n "${TABLE_COUNT}" ] && [ "${TABLE_COUNT}" -gt 0 ] 2>/dev/null; then
+    ok "  数据库已有 ${TABLE_COUNT} 张表，跳过初始化"
+  else
+    info "  导入 pgsql.sql..."
+    docker compose exec -T postgres psql -U alephant -d alephant < "${COMPOSE_DIR}/pgsql.sql" 2>&1 | grep -E "ERROR|CREATE TABLE|INSERT" || true
+    ok "  pgsql.sql 导入完成"
+  fi
+
+  # ── 等待 ClickHouse 就绪 ──
+  info "  等待 ClickHouse 就绪..."
+  i=0
+  while [ $i -lt $RETRIES ]; do
+    if docker compose exec -T clickhouse clickhouse-client --user default --password "${CLICKHOUSE_PASSWORD}" --query "SELECT 1" &>/dev/null; then
+      ok "  ClickHouse 就绪"
+      break
+    fi
+    i=$((i + 1))
+    sleep $WAIT
+  done
+  if [ $i -ge $RETRIES ]; then
+    warn "ClickHouse 未能就绪，跳过初始化"
+    return
+  fi
+
+  # ── ClickHouse 初始化（容忍已知的 Dictionary 引擎错误） ──
+  local CH_TABLES
+  CH_TABLES=$(docker compose exec -T clickhouse clickhouse-client --user default --password "${CLICKHOUSE_PASSWORD}" --query "SHOW TABLES" 2>/dev/null | wc -l | tr -d ' ')
+  if [ -n "${CH_TABLES}" ] && [ "${CH_TABLES}" -gt 0 ] 2>/dev/null; then
+    ok "  ClickHouse 已有 ${CH_TABLES} 张表，跳过初始化"
+  else
+    info "  导入 clickhouse.sql..."
+    # 已知 Dictionary 引擎表创建会报错，忽略该错误
+    docker compose exec -T clickhouse clickhouse-client --user default --password "${CLICKHOUSE_PASSWORD}" < "${COMPOSE_DIR}/clickhouse.sql" 2>&1 | grep -v "DB::Exception" || true
+    ok "  clickhouse.sql 导入完成"
+  fi
+}
+
 # ─── 启动服务 ──────────────────────────────────────────────────────────────
 start_services() {
   info "启动所有服务..."
@@ -323,6 +385,7 @@ main() {
   generate_config
   collect_license
   start_services
+  init_databases
 
   echo ""
   echo "═══════════════════════════════════════════"
