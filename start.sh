@@ -6,9 +6,7 @@
 # =============================================================================
 set -euo pipefail
 
-S3_BASE_URL="https://image-exports.alephant.io/alephant"
 COMPOSE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOWNLOAD_DIR="${COMPOSE_DIR}/.downloaded-images"
 
 # 颜色
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -245,81 +243,11 @@ EOF
   info "  JWT 密钥:        ${JWT_SECRET}"
 }
 
-# ─── 下载业务镜像 ──────────────────────────────────────────────────────────
-download_images() {
-  mkdir -p "${DOWNLOAD_DIR}"
-  local TOTAL=0
-  for entry in \
-    "app/alephantai-app-20260613081608.tar" \
-    "saas-service/alephantai-saas-service-20260629121515.tar" \
-    "policy-service/alephantai-policy-service-20260613220845.tar" \
-    "ai-gateway/alephantai-ai-gateway-20260629120913.tar" \
-    "logs-collector/alephantai-logs-collector-20260618231935.tar"; do
-    
-    local module="${entry%%/*}"
-    local file="${entry##*/}"
-    local local_path="${DOWNLOAD_DIR}/${file}"
-    
-    [ -f "$local_path" ] && [ -s "$local_path" ] && { ok "${file} 已存在"; TOTAL=$((TOTAL+1)); continue; }
-    
-    echo -n "  下载 ${file}... "
-    if command -v curl &>/dev/null; then
-      curl -sL -o "$local_path" "${S3_BASE_URL}/${entry}" || true
-    else
-      wget -q -O "$local_path" "${S3_BASE_URL}/${entry}" || true
-    fi
-    if [ -f "$local_path" ] && [ -s "$local_path" ]; then
-      echo -e "${GREEN}✓${NC}"
-      TOTAL=$((TOTAL+1))
-    else
-      echo -e "${RED}✗${NC}"
-    fi
-  done
-  ok "下载完成: ${TOTAL}/5"
-}
-
-# ─── 加载业务镜像 ──────────────────────────────────────────────────────────
-load_images() {
-  local LOADED=0
-  for file in "${DOWNLOAD_DIR}"/*.tar; do
-    [ -f "$file" ] || continue
-    local name
-    name=$(basename "$file" .tar)
-    echo -n "  加载 ${name}... "
-    local output
-    output=$(docker load -i "$file" 2>&1) && { echo -e "${GREEN}✓${NC}"; LOADED=$((LOADED+1)); } || { echo -e "${YELLOW}✗${NC} $output"; }
-  done
-  ok "加载完成: ${LOADED} 个镜像"
-}
-
 # ─── 启动服务 ──────────────────────────────────────────────────────────────
 start_services() {
-  # 确保 alpine 基础镜像存在（用于占位）
-  if ! docker image inspect alpine:latest &>/dev/null; then
-    echo -n "  拉取 alpine（基础镜像）... "
-    docker pull alpine:latest 2>/dev/null && echo -e "${GREEN}✓${NC}" || { err "无法拉取 alpine"; exit 1; }
-  fi
-
-  # 用 alpine 为所有缺失镜像创建占位（含中间件），确保 compose 能启动
-  for img_spec in \
-    "registry.digitalocean.com/wechart/alephantai-app:20260613081608" \
-    "registry.digitalocean.com/wechart/alephantai-saas-service:20260629121515" \
-    "registry.digitalocean.com/wechart/alephantai-policy-service:20260613220845" \
-    "registry.digitalocean.com/wechart/alephantai-ai-gateway:20260629120913" \
-    "registry.digitalocean.com/wechart/alephantai-logs-collector:20260618231935" \
-    "postgres:17" \
-    "clickhouse/clickhouse-server:24.8" \
-    "valkey/valkey:9.0.2" \
-    "qdrant/qdrant:v1.17.1" \
-    "pingcap/pd:v7.5.0" \
-    "pingcap/tikv:v7.5.0" \
-    "pgsty/minio:latest"; do
-    docker image inspect "$img_spec" &>/dev/null || docker tag alpine:latest "$img_spec" 2>/dev/null || true
-  done
-
   info "启动所有服务..."
   cd "${COMPOSE_DIR}"
-  docker compose up -d --pull never 2>&1
+  docker compose up -d 2>&1
   ok "服务已启动!"
   echo ""
   echo "  查看状态: docker compose ps"
@@ -336,8 +264,6 @@ main() {
 
   check_prereqs
   generate_config
-  download_images
-  load_images
   start_services
 
   echo ""
