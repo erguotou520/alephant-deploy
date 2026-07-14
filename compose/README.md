@@ -147,6 +147,10 @@ bash start-compose.sh
 1. 输入超级管理员邮箱，按回车确认。
 2. 按提示输入 Alephant 管理端生成的 JWT 文件内容。
 3. JWT 文件内容输入完成后，连续按两次 `Ctrl+D`，确认保存。
+   
+#### 截图
+
+![alt text](image-1.png)
 
 #### 注意事项
 
@@ -175,6 +179,7 @@ bash start-compose.sh
 docker ps -a
 ```
 
+
 #### 操作结果
 
 正常情况下，容器状态应全部处于运行状态：不应出现 `Exited`、`Restarting` 或其他异常状态。
@@ -194,6 +199,11 @@ docker ps -a
 - `alephant-qdrant`
 - `alephant-postgres`
 - `alephant-logs-collector`
+
+
+#### 截图
+![alt text](image-2.png)
+
 
 #### 注意事项
 
@@ -262,6 +272,9 @@ COLLECTOR_BASE_URL=https://your-ip:your-logs-port
 
 完成 `compose/app.env` 中自定义前端 API 地址及相关服务地址的配置。
 
+
+#### 截图
+![alt text](image-3.png)
 
 #### 注意事项
 
@@ -501,6 +514,9 @@ sudo nginx -t
 
 注册成功后，该账号作为 Alephant 系统的超级管理员账号使用。
 
+#### 截图
+
+![alt text](image-4.png)
 
 #### 注意事项
 
