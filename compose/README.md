@@ -148,10 +148,6 @@ bash start-compose.sh
 2. 按提示输入 Alephant 管理端生成的 JWT 文件内容。
 3. JWT 文件内容输入完成后，连续按两次 `Ctrl+D`，确认保存。
 
-#### 截图
-
-![启动脚本交互式配置界面](images/step-5-start-compose-interactive.png)
-
 #### 注意事项
 
 - 执行脚本前，确认当前目录的上级目录中存在 `alephant-deploy` 项目目录。
@@ -198,11 +194,6 @@ docker ps -a
 - `alephant-qdrant`
 - `alephant-postgres`
 - `alephant-logs-collector`
-
-
-#### 截图
-
-![容器运行状态](images/step-6-container-status.png)
 
 #### 注意事项
 
@@ -271,9 +262,6 @@ COLLECTOR_BASE_URL=https://your-ip:your-logs-port
 
 完成 `compose/app.env` 中自定义前端 API 地址及相关服务地址的配置。
 
-#### 截图
-
-![自定义前端 API 地址配置](images/step-7-custom-api-url.png)
 
 #### 注意事项
 
@@ -616,7 +604,6 @@ docker ps -a
 ```
 
 确认所有 Alephant 相关容器均处于 `Up` 状态，配置健康检查的容器显示 `healthy`，且没有容器处于 `Exited` 或 `Restarting` 状态。
-
 
 ## 5. 附录
 
