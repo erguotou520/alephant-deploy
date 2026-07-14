@@ -51,17 +51,14 @@
 
 ### 2.1 检查是否有 JWT 密钥文件
 
- 检查是否有 JWT 密钥文件，供后续执行 `start-compose.sh` 时输入。如果没有请联系Alephant团队获取
-
-> JWT 密钥文件属于敏感凭据，应妥善保存，不要提交到代码仓库或写入公开文档。
+ 检查是否有 JWT 密钥文件，供后续执行 `start-compose.sh` 时输入。如果没有请联系Alephant团队获取 (dev@alephant.io)
 
 ### 2.2 安装 Docker 并登录镜像仓库
 
 在部署服务器上安装符合要求的 Docker 环境，并确认已包含 Compose plugin，可执行 `docker compose` 命令。
 
 登录 Alephant 业务镜像仓库：
-登录命令随jwt授权文件邮件下发，若遗漏请联系Alephant团队获取
-
+登录命令随jwt授权文件邮件下发，若遗漏请联系Alephant团队获取 (dev@alephant.io)
 
 ### 2.3 准备访问入口
 
@@ -82,7 +79,6 @@
 - [ ] 已安装 Docker，版本满足要求
 - [ ] `docker compose` 命令可正常执行
 - [ ] 已准备访问域名，或已规划三个外部访问端口
-
 
 ## 3. 独立部署流程
 
@@ -662,6 +658,6 @@ docker ps -a
 
 ## 6. 联系方式
 
-- X：<https://x.com/alephantai>
+- X：<https://x.com/openmodelsai>
 - Discord：<https://discord.com/invite/tRQghcXhaH>
 - Wechat: hong3yang
